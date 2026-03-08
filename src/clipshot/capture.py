@@ -74,15 +74,18 @@ def capture_screen(callback):
 
 
 class OverlayWindow(Gtk.Window):
-    def __init__(self, app, config):
+    def __init__(self, app, config, fullscreen_mode=False):
         super().__init__(application=app)
         self._config = config
+        self._fullscreen_mode = fullscreen_mode
         self._pixbuf = None
         self._screenshot_path = None
         self._start = None
         self._end = None
         self._saved_rect = None  # locked-in selection for actions
         self._action_taken = False
+        self._mouse_pos = None  # for crosshair guides
+        self._dragging = False
 
         self.set_decorated(False)
         self.set_cursor(Gdk.Cursor.new_from_name("crosshair", None))
@@ -97,6 +100,11 @@ class OverlayWindow(Gtk.Window):
         drag.connect("drag-update", self._on_drag_update)
         drag.connect("drag-end", self._on_drag_end)
         self._drawing_area.add_controller(drag)
+
+        # Mouse motion for crosshair
+        motion = Gtk.EventControllerMotion()
+        motion.connect("motion", self._on_motion)
+        self._drawing_area.add_controller(motion)
 
         # Escape to cancel
         key_ctrl = Gtk.EventControllerKey()
@@ -142,6 +150,14 @@ class OverlayWindow(Gtk.Window):
         self.fullscreen()
         self.present()
 
+        if self._fullscreen_mode:
+            # Select entire image and show context menu at center
+            pw = self._pixbuf.get_width()
+            ph = self._pixbuf.get_height()
+            self._saved_rect = (0, 0, pw, ph)
+            # Delay to ensure window is fully mapped
+            GLib.timeout_add(300, self._show_fullscreen_menu)
+
     def _on_draw(self, area, cr, width, height):
         if not self._pixbuf:
             return
@@ -173,13 +189,67 @@ class OverlayWindow(Gtk.Window):
                 cr.set_dash([6, 4])
                 cr.rectangle(x, y, w, h)
                 cr.stroke()
+
+                # Dimensions label
+                cr.set_dash([])
+                label = f"{w} × {h}"
+                cr.set_font_size(13)
+                extents = cr.text_extents(label)
+                pad = 6
+                lw = extents.width + pad * 2
+                lh = extents.height + pad * 2
+
+                # Position: below-right of selection, flip if near edges
+                lx = x + w - lw
+                ly = y + h + 6
+                if ly + lh > height:
+                    ly = y - lh - 6
+                if lx < 0:
+                    lx = x
+
+                # Background
+                cr.set_source_rgba(0, 0, 0, 0.7)
+                cr.rectangle(lx, ly, lw, lh)
+                cr.fill()
+
+                # Text
+                cr.set_source_rgba(1, 1, 1, 0.95)
+                cr.move_to(lx + pad, ly + pad + extents.height)
+                cr.show_text(label)
         else:
             # Subtle dim to indicate ready state
             cr.set_source_rgba(0, 0, 0, 0.15)
             cr.paint()
 
+            # Crosshair guides
+            if self._mouse_pos and not self._dragging:
+                mx, my = self._mouse_pos
+                cr.set_source_rgba(1, 1, 1, 0.4)
+                cr.set_line_width(0.5)
+                cr.move_to(mx, 0)
+                cr.line_to(mx, height)
+                cr.stroke()
+                cr.move_to(0, my)
+                cr.line_to(width, my)
+                cr.stroke()
+
+    def _show_fullscreen_menu(self):
+        pw = self._pixbuf.get_width()
+        ph = self._pixbuf.get_height()
+        r = Gdk.Rectangle()
+        r.x, r.y, r.width, r.height = pw // 2, ph // 2, 1, 1
+        self._popover.set_pointing_to(r)
+        self._popover.popup()
+        return False
+
+    def _on_motion(self, controller, x, y):
+        self._mouse_pos = (x, y)
+        if not self._dragging:
+            self._drawing_area.queue_draw()
+
     def _on_drag_begin(self, gesture, start_x, start_y):
         self._popover.popdown()
+        self._dragging = True
         self._start = (start_x, start_y)
         self._end = (start_x, start_y)
 
@@ -188,6 +258,7 @@ class OverlayWindow(Gtk.Window):
         self._drawing_area.queue_draw()
 
     def _on_drag_end(self, gesture, offset_x, offset_y):
+        self._dragging = False
         self._end = (self._start[0] + offset_x, self._start[1] + offset_y)
         self._drawing_area.queue_draw()
 
@@ -347,20 +418,23 @@ class OverlayWindow(Gtk.Window):
 
 
 class ClipshotApp(Gtk.Application):
-    def __init__(self):
+    def __init__(self, fullscreen_mode=False):
         super().__init__(
             application_id="dev.clipshot.app",
             flags=Gio.ApplicationFlags.NON_UNIQUE,
         )
+        self._fullscreen_mode = fullscreen_mode
 
     def do_activate(self):
         config = Config.load()
-        window = OverlayWindow(self, config)
+        window = OverlayWindow(self, config, fullscreen_mode=self._fullscreen_mode)
         capture_screen(window.show_with_screenshot)
 
 
 def run():
-    app = ClipshotApp()
+    import sys
+    fullscreen = "--fullscreen" in sys.argv
+    app = ClipshotApp(fullscreen_mode=fullscreen)
     app.run(None)
 
 

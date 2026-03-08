@@ -7,7 +7,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("AppIndicator3", "0.1")
 from gi.repository import Gtk, AppIndicator3, Gio, GLib
 
-from clipshot.config import Config, KEYBIND_BASE, KEYBIND_PATH
+from clipshot.config import Config, KEYBIND_BASE, KEYBIND_PATH_REGION, KEYBIND_PATH_FULLSCREEN
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CAPTURE_SHELL = os.path.join(PROJECT_ROOT, "clipshot.sh")
@@ -27,9 +27,27 @@ X-GNOME-Autostart-enabled=true
 
 class ClipshotTray:
     def __init__(self):
+        # Follow system dark/light theme
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+            result = bus.call_sync(
+                "org.freedesktop.portal.Desktop",
+                "/org/freedesktop/portal/desktop",
+                "org.freedesktop.portal.Settings",
+                "Read",
+                GLib.Variant("(ss)", ("org.freedesktop.appearance", "color-scheme")),
+                None, Gio.DBusCallFlags.NONE, 500, None,
+            )
+            # 1 = prefer dark, 2 = prefer light, 0 = no preference
+            scheme = result.unpack()[0]
+            is_dark = scheme == 1
+        except Exception:
+            is_dark = False
+        Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", is_dark)
+
         self._config = Config.load()
         self._setup_indicator()
-        self._sync_keybinding()
+        self._sync_keybindings()
         self._ensure_autostart()
 
     def _setup_indicator(self):
@@ -45,12 +63,24 @@ class ClipshotTray:
     def _rebuild_menu(self):
         menu = Gtk.Menu()
 
-        # Take Screenshot
-        item_capture = Gtk.MenuItem(label="Take Screenshot")
-        item_capture.connect("activate", self._on_take_screenshot)
-        menu.append(item_capture)
+        # Region screenshot
+        region_shortcut = self._format_shortcut(self._config.shortcut_region)
+        item_region = Gtk.MenuItem(label=f"Take Region Screenshot ({region_shortcut})")
+        item_region.connect("activate", self._on_take_region)
+        menu.append(item_region)
+
+        # Fullscreen capture
+        fullscreen_shortcut = self._format_shortcut(self._config.shortcut_fullscreen)
+        item_fullscreen = Gtk.MenuItem(label=f"Fullscreen Capture ({fullscreen_shortcut})")
+        item_fullscreen.connect("activate", self._on_take_fullscreen)
+        menu.append(item_fullscreen)
 
         menu.append(Gtk.SeparatorMenuItem())
+
+        # Open save folder
+        item_open_dir = Gtk.MenuItem(label="Open Screenshots Folder")
+        item_open_dir.connect("activate", self._on_open_save_dir)
+        menu.append(item_open_dir)
 
         # Save location
         item_save_dir = Gtk.MenuItem(
@@ -59,12 +89,10 @@ class ClipshotTray:
         item_save_dir.connect("activate", self._on_change_save_dir)
         menu.append(item_save_dir)
 
-        # Shortcut
-        item_shortcut = Gtk.MenuItem(
-            label=f"Shortcut: {self._format_shortcut(self._config.shortcut)}"
-        )
-        item_shortcut.connect("activate", self._on_change_shortcut)
-        menu.append(item_shortcut)
+        # Shortcuts
+        item_shortcuts = Gtk.MenuItem(label="Keyboard Shortcuts")
+        item_shortcuts.connect("activate", self._on_edit_shortcuts)
+        menu.append(item_shortcuts)
 
         menu.append(Gtk.SeparatorMenuItem())
 
@@ -95,12 +123,23 @@ class ClipshotTray:
 
     # --- Actions ---
 
-    def _on_take_screenshot(self, _):
+    def _on_take_region(self, _):
         subprocess.Popen(
             [CAPTURE_SHELL],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+
+    def _on_take_fullscreen(self, _):
+        subprocess.Popen(
+            [CAPTURE_SHELL, "--fullscreen"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+    def _on_open_save_dir(self, _):
+        path = str(self._config.save_directory)
+        subprocess.Popen(["xdg-open", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _on_change_save_dir(self, _):
         dialog = Gtk.FileChooserDialog(
@@ -120,39 +159,80 @@ class ClipshotTray:
 
         dialog.destroy()
 
-    def _on_change_shortcut(self, _):
+    def _on_edit_shortcuts(self, _):
         dialog = Gtk.Dialog(
-            title="Set Shortcut",
+            title="Keyboard Shortcuts",
             flags=Gtk.DialogFlags.MODAL,
         )
-        dialog.set_default_size(350, 120)
+        dialog.set_default_size(420, 200)
         dialog.add_buttons(
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_OK, Gtk.ResponseType.OK,
         )
 
         box = dialog.get_content_area()
-        box.set_spacing(12)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
+        box.set_spacing(16)
+        box.set_margin_top(16)
+        box.set_margin_bottom(8)
+        box.set_margin_start(16)
+        box.set_margin_end(16)
 
-        label = Gtk.Label(label="Press the desired key combination...")
-        label.set_halign(Gtk.Align.CENTER)
-        box.add(label)
+        shortcuts = {
+            "region": self._config.shortcut_region,
+            "fullscreen": self._config.shortcut_fullscreen,
+        }
 
-        current_label = Gtk.Label()
-        current_label.set_markup(
-            f"<small>Current: {self._format_shortcut(self._config.shortcut)}</small>"
+        # Region shortcut row
+        row_region = self._shortcut_row(
+            "Region Screenshot", shortcuts, "region"
         )
-        current_label.set_halign(Gtk.Align.CENTER)
-        box.add(current_label)
+        box.add(row_region)
 
-        captured = {}
+        # Fullscreen shortcut row
+        row_fullscreen = self._shortcut_row(
+            "Fullscreen Capture", shortcuts, "fullscreen"
+        )
+        box.add(row_fullscreen)
+
+        dialog.show_all()
+
+        if dialog.run() == Gtk.ResponseType.OK:
+            self._config.shortcut_region = shortcuts["region"]
+            self._config.shortcut_fullscreen = shortcuts["fullscreen"]
+            self._config.save()
+            self._sync_keybindings()
+            self._rebuild_menu()
+
+        dialog.destroy()
+
+    def _shortcut_row(self, label_text, shortcuts_dict, key):
+        """Create a row with label and a button to capture a shortcut."""
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+
+        label = Gtk.Label(label=label_text)
+        label.set_xalign(0)
+        row.pack_start(label, True, True, 0)
+
+        btn = Gtk.Button(label=self._format_shortcut(shortcuts_dict[key]))
+        btn.set_size_request(160, -1)
+
+        def on_clicked(button):
+            self._capture_shortcut(button, shortcuts_dict, key)
+
+        btn.connect("clicked", on_clicked)
+        row.pack_end(btn, False, False, 0)
+
+        return row
+
+    def _capture_shortcut(self, button, shortcuts_dict, key):
+        """Replace button label with 'Press a key...' and capture next keypress."""
+        button.set_label("Press a key...")
+        button.set_sensitive(False)
 
         def on_key(widget, event):
             mods = event.state & Gtk.accelerator_get_default_mod_mask()
             keyval = event.keyval
+            # Ignore bare modifier keys
             if keyval in (
                 65505, 65506,  # Shift
                 65507, 65508,  # Ctrl
@@ -163,23 +243,15 @@ class ClipshotTray:
 
             accel = Gtk.accelerator_name(keyval, mods)
             if accel:
-                captured["shortcut"] = accel
-                label.set_text(
-                    f"Captured: {self._format_shortcut(accel)}"
-                )
-                dialog.add_button(Gtk.STOCK_OK, Gtk.ResponseType.OK)
+                shortcuts_dict[key] = accel
+                button.set_label(self._format_shortcut(accel))
+
+            button.set_sensitive(True)
+            dialog.disconnect(handler_id)
             return True
 
-        dialog.connect("key-press-event", on_key)
-        dialog.show_all()
-
-        if dialog.run() == Gtk.ResponseType.OK and "shortcut" in captured:
-            self._config.shortcut = captured["shortcut"]
-            self._config.save()
-            self._sync_keybinding()
-            self._rebuild_menu()
-
-        dialog.destroy()
+        dialog = button.get_toplevel()
+        handler_id = dialog.connect("key-press-event", on_key)
 
     def _on_toggle_autostart(self, widget):
         if widget.get_active():
@@ -201,24 +273,39 @@ class ClipshotTray:
     def _on_quit(self, _):
         Gtk.main_quit()
 
-    # --- Keybinding ---
+    # --- Keybindings ---
 
-    def _sync_keybinding(self):
-        """Register/update the GNOME custom keybinding."""
+    def _sync_keybindings(self):
+        """Register/update all GNOME custom keybindings."""
         try:
             settings = Gio.Settings.new("org.gnome.settings-daemon.plugins.media-keys")
             current = settings.get_strv("custom-keybindings")
-            if KEYBIND_PATH not in current:
-                current.append(KEYBIND_PATH)
+            changed = False
+            for path in (KEYBIND_PATH_REGION, KEYBIND_PATH_FULLSCREEN):
+                if path not in current:
+                    current.append(path)
+                    changed = True
+            if changed:
                 settings.set_strv("custom-keybindings", current)
 
+            # Region
             kb = Gio.Settings.new_with_path(
                 "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding",
-                KEYBIND_PATH,
+                KEYBIND_PATH_REGION,
             )
-            kb.set_string("name", "Clipshot")
+            kb.set_string("name", "Clipshot Region")
             kb.set_string("command", CAPTURE_SHELL)
-            kb.set_string("binding", self._config.shortcut)
+            kb.set_string("binding", self._config.shortcut_region)
+
+            # Fullscreen
+            kb = Gio.Settings.new_with_path(
+                "org.gnome.settings-daemon.plugins.media-keys.custom-keybinding",
+                KEYBIND_PATH_FULLSCREEN,
+            )
+            kb.set_string("name", "Clipshot Fullscreen")
+            kb.set_string("command", f"{CAPTURE_SHELL} --fullscreen")
+            kb.set_string("binding", self._config.shortcut_fullscreen)
+
             Gio.Settings.sync()
         except Exception:
             pass
