@@ -1,0 +1,29 @@
+[project]
+name = "clipshot"
+version = "0.1.0"
+description = "A native Wayland screenshot tool for GNOME"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = []
+authors = [
+    { name = "Bhagyajit Jagdev" },
+]
+keywords = ["screenshot", "wayland", "gnome", "gtk", "linux"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics :: Capture :: Screen Capture",
+]
+
+[project.urls]
+Homepage = "https://github.com/bhagyajitjagdev/clipshot"
+Repository = "https://github.com/bhagyajitjagdev/clipshot"
+Issues = "https://github.com/bhagyajitjagdev/clipshot/issues"
+
+[project.scripts]
+clipshot = "main:main"
