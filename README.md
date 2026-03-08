@@ -7,19 +7,21 @@ Clipshot gives you a ShareX/ksnip-style workflow on Wayland: press a shortcut, d
 ## Features
 
 - **Drag-to-select** — freeze the screen, drag a region, get a context menu
+- **Fullscreen capture** — capture the entire screen with one shortcut
 - **Copy or save** — copy image to clipboard, save to disk, or both
+- **Selection helpers** — crosshair guides for alignment, live W×H dimensions while dragging
 - **System tray** — always accessible, configure from the tray menu
-- **Keyboard shortcut** — `Super+U` by default, changeable from the tray
+- **Keyboard shortcuts** — `Super+U` for region, `Super+I` for fullscreen, all configurable
 - **Autostart** — starts on login automatically
 - **Native Wayland** — uses the XDG Desktop Portal, works without any workarounds
 
 ### Context Menu Actions
 
-After selecting a region, a menu appears at your cursor:
+After selecting a region (or on fullscreen capture), a menu appears:
 
 | Action | What it does |
 |--------|-------------|
-| Save | Save cropped PNG to `~/Pictures/Screenshots/` |
+| Save | Save PNG to `~/Pictures/Screenshots/` |
 | Save and copy path | Save + copy file path to clipboard |
 | Save and copy image | Save + copy image to clipboard |
 | Copy image | Copy image to clipboard (no file saved) |
@@ -47,31 +49,49 @@ cd clipshot
 python3 main.py
 ```
 
-That's it. The tray icon appears, the keyboard shortcut is registered, and autostart is enabled.
+That's it. The tray icon appears, keyboard shortcuts are registered, and autostart is enabled.
 
 ## Usage
 
-### Take a screenshot
+### Region screenshot
 
-1. Press `Super+U` (or click the tray icon → Take Screenshot)
-2. The screen freezes with a slight dim overlay
-3. Drag to select a region
+1. Press `Super+U` (or click the tray icon → Take Region Screenshot)
+2. The screen freezes — crosshair guides follow your cursor
+3. Drag to select a region (dimensions shown while dragging)
 4. Pick an action from the context menu
 5. Done — a notification confirms the action
+
+### Fullscreen capture
+
+1. Press `Super+I` (or click the tray icon → Fullscreen Capture)
+2. The screen captures and a context menu appears at center
+3. Pick an action
 
 ### Cancel
 
 Press `Escape` at any time to cancel. You can also dismiss the context menu and re-drag to select a different region.
 
-### Change settings
+### Tray menu
 
 Click the tray icon to access:
 
+- **Take Region Screenshot (Super+U)** — drag to select
+- **Fullscreen Capture (Super+I)** — capture entire screen
+- **Open Screenshots Folder** — open save directory in file manager
 - **Save to:** — change where screenshots are saved
-- **Shortcut:** — press a new key combination to rebind
+- **Keyboard Shortcuts** — edit all shortcuts in one dialog
 - **Start on login** — toggle autostart
+- **Quit**
 
-Settings are stored in `~/.config/clipshot/config.toml`.
+## Configuration
+
+Config file: `~/.config/clipshot/config.toml`
+
+```toml
+save_directory = "/home/you/Pictures/Screenshots"
+shortcut_region = "<Super>u"
+shortcut_fullscreen = "<Super>i"
+```
 
 ## How it Works
 
@@ -83,25 +103,12 @@ The app runs as two processes:
 
 This split exists because AppIndicator3 requires GTK3, while the overlay uses GTK4 for native Wayland support. GTK3 and GTK4 can't coexist in one process.
 
-For more details on the architecture and design decisions, see the project's issue tracker and discussions.
-
-## Configuration
-
-Config file: `~/.config/clipshot/config.toml`
-
-```toml
-save_directory = "/home/you/Pictures/Screenshots"
-shortcut = "<Super>u"
-```
-
 ## Roadmap
 
 Upcoming:
 
-- Selection dimensions display while dragging
-- Crosshair guides for alignment
-- Fullscreen and window capture modes
 - Delay/timer capture
+- Active window capture
 - Multi-monitor support
 - Annotation tools
 - Capture history
