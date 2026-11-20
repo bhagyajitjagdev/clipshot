@@ -120,6 +120,7 @@ class OverlayWindow(Gtk.Window):
         menu.append("Save and copy path", "win.save-copy-path")
         menu.append("Save and copy image", "win.save-copy-image")
         menu.append("Copy image", "win.copy-image")
+        menu.append("Annotate", "win.annotate")
 
         action_group = Gio.SimpleActionGroup()
         actions = [
@@ -127,6 +128,7 @@ class OverlayWindow(Gtk.Window):
             ("save-copy-path", self._action_save_copy_path),
             ("save-copy-image", self._action_save_copy_image),
             ("copy-image", self._action_copy_image),
+            ("annotate", self._action_annotate),
         ]
         for name, handler in actions:
             action = Gio.SimpleAction(name=name)
@@ -365,6 +367,17 @@ class OverlayWindow(Gtk.Window):
     def _finish(self):
         self._cleanup_tmp()
         self.get_application().quit()
+
+    def _action_annotate(self):
+        self._action_taken = True
+        cropped = self._get_cropped_pixbuf()
+        if not cropped:
+            return
+        from clipshot.annotate import AnnotationWindow
+        screenshot_path = self._screenshot_path
+        self._screenshot_path = None  # Transfer cleanup to annotation window
+        AnnotationWindow(self.get_application(), self._config, cropped, screenshot_path)
+        self.close()
 
     def _action_save(self):
         self._action_taken = True
